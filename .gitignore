@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Node / frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Virtual environments
+.venv/
+venv/
+agent/.venv/
+
+# Build outputs
+build/
+dist/
+out/
+target/
+agent/tauri-control/src-tauri/target/
+agent/tauri-control/dist/
+
+# Runtime/generated local files
+agent/launcher_config.json
+agent/warpdesk_backend.log
+agent/__pycache__/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Runtime artifacts
+*.log
+logs/
+*.tmp
+*.pid
+
+# Binaries / packages
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.zip
+*.7z
+*.whl
+
+# Keep curated release artifacts
+!Official Builds/
+!Official Builds/**
+
+# Coverage
+.coverage
+coverage/
+htmlcov/

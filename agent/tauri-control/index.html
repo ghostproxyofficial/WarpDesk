@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WarpDesk</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <main class="layout">
+        <section class="panel control-panel">
+          <div class="control-content">
+          <h2>Credentials</h2>
+          <div class="grid-2">
+            <div class="field">
+              <label for="host-username">Username</label>
+              <input id="host-username" type="text" value="admin" autocomplete="off" />
+              <button id="set-host-username" class="btn">Set</button>
+            </div>
+            <div class="field">
+              <label for="host-password">Password</label>
+              <div class="password-wrap">
+                <input id="host-password" type="password" value="warpdesk" autocomplete="off" />
+                <button id="toggle-host-password" class="btn btn-mini" type="button">Show</button>
+              </div>
+              <button id="set-host-password" class="btn">Set</button>
+            </div>
+          </div>
+
+          <h2 class="section-title">Connection</h2>
+          <div class="field field-port">
+            <label for="port-input">Port</label>
+            <input id="port-input" type="text" value="8443" autocomplete="off" />
+            <div class="row-inline">
+              <button id="check-port" class="btn btn-ghost">Check</button>
+              <button id="set-port" class="btn">Set</button>
+            </div>
+          </div>
+
+          <div class="grid-2 compact">
+            <div class="field">
+              <label for="fps-input">Max FPS</label>
+              <input id="fps-input" type="text" value="60" autocomplete="off" />
+              <button id="set-fps" class="btn">Set</button>
+            </div>
+            <div class="field">
+              <label>Max Screen Resolution</label>
+              <div id="scale-dropdown" class="custom-dropdown" data-role="dropdown" data-value="100"></div>
+              <button id="set-scale" class="btn">Set</button>
+            </div>
+          </div>
+          </div>
+
+          <div class="host-actions">
+            <button id="start-host" class="btn">Start Host</button>
+            <button id="stop-host" class="btn">Stop Host</button>
+          </div>
+        </section>
+
+        <section class="panel connect-panel">
+          <h2>Connect</h2>
+          <div class="field">
+            <label for="connect-username">Username</label>
+            <input id="connect-username" type="text" value="admin" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="connect-password">Password</label>
+            <input id="connect-password" type="password" value="warpdesk" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="connect-url">Connection URL</label>
+            <input id="connect-url" type="text" value="https://127.0.0.1:8443" autocomplete="off" />
+          </div>
+          <button id="connect-host" class="btn connect-btn">Connect</button>
+        </section>
+      </main>
+
+      <footer class="statusbar">
+        <div id="status-pill" class="status-pill status-grey">
+          <span class="status-dot"></span>
+          <span id="status-label">Not Started</span>
+        </div>
+        <div class="status-controls">
+          <button id="settings-toggle" class="settings-btn" type="button" aria-label="Settings">⚙</button>
+          <div id="settings-popover" class="settings-popover" hidden>
+            <h3>Settings</h3>
+            <div class="field">
+              <label>Chosen Monitor</label>
+              <div id="monitor-dropdown" class="custom-dropdown" data-role="dropdown" data-value="1"></div>
+            </div>
+            <label class="switch-row">
+              <input id="auto-refresh" type="checkbox" checked />
+              <span>Auto-refresh host state</span>
+            </label>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

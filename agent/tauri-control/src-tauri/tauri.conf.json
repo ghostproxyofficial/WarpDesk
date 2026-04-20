@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "WarpDesk",
+  "version": "0.1.1",
+  "identifier": "com.warpdesk.controlpanel",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "WarpDesk",
+        "width": 1280,
+        "height": 760,
+        "minWidth": 1320,
+        "minHeight": 680,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.ico",
+      "../../../web/favicon/cursor.png"
+    ],
+    "resources": [
+      "../../app.py",
+      "../../selkies_windows_launcher.py",
+      "../../selkies_gst_presets.py",
+      "../../.venv",
+      "../../../web"
+    ]
+  }
+}

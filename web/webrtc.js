@@ -6,9 +6,35 @@
 (function () {
     'use strict';
 
-    const ICE_SERVERS = [
+    const DEFAULT_ICE_SERVERS = [
         { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
     ];
+
+    async function fetchIceServers(hostUrl, token) {
+        if (!hostUrl || !token) return DEFAULT_ICE_SERVERS;
+        try {
+            const response = await fetch(`${hostUrl}/api/ice-servers`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}` },
+                mode: 'cors',
+            });
+            if (!response.ok) return DEFAULT_ICE_SERVERS;
+            const data = await response.json();
+            if (!data || !data.success || !Array.isArray(data.iceServers) || data.iceServers.length === 0) {
+                return DEFAULT_ICE_SERVERS;
+            }
+
+            const sanitized = data.iceServers.filter((entry) => {
+                if (!entry || typeof entry !== 'object') return false;
+                const urls = entry.urls;
+                if (Array.isArray(urls)) return urls.length > 0;
+                return typeof urls === 'string' && urls.length > 0;
+            });
+            return sanitized.length > 0 ? sanitized : DEFAULT_ICE_SERVERS;
+        } catch (_) {
+            return DEFAULT_ICE_SERVERS;
+        }
+    }
 
     function parseCandidateInfo(candidateLine) {
         if (!candidateLine || typeof candidateLine !== 'string') return null;
@@ -260,8 +286,9 @@
         }
 
         try {
+            const iceServers = await fetchIceServers(hostUrl, token);
             pc = new RTCPeerConnection({
-                iceServers: ICE_SERVERS,
+                iceServers,
                 iceCandidatePoolSize: 10,
             });
 

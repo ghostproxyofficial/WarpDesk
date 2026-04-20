@@ -20,7 +20,7 @@ import mss
 import numpy as np
 import pyautogui
 import pyperclip
-from aiohttp import web
+from aiohttp import ClientSession, ClientTimeout, web
 from selkies_gst_presets import choose_platform_preset
 
 try:
@@ -109,6 +109,52 @@ logging.basicConfig(level=logging.WARNING)
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 
+def _load_env_file(env_path: Path) -> None:
+    if not env_path.exists() or not env_path.is_file():
+        return
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if not key:
+                continue
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+            # Do not override environment values that are already defined externally.
+            os.environ.setdefault(key, value)
+    except Exception:
+        logger.warning("Failed to read env file: %s", env_path)
+
+
+def _load_local_env_files() -> None:
+    repo_root = Path.cwd()
+    agent_dir = Path(__file__).resolve().parent
+    candidates = [
+        repo_root / ".env",
+        repo_root / ".env.local",
+        agent_dir / ".env",
+        agent_dir / ".env.local",
+    ]
+    for env_path in candidates:
+        _load_env_file(env_path)
+
+
+_load_local_env_files()
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 PORT = int(os.getenv("WARPDESK_PORT", "8443"))
 USERNAME = os.getenv("WARPDESK_USER", "admin")
 PASSWORD = os.getenv("WARPDESK_PASSWORD", "warpdesk")
@@ -133,6 +179,45 @@ ICE_STUN_SERVERS = [
     "stun:stun.l.google.com:19302",
     "stun:stun1.l.google.com:19302",
 ]
+TURN_SERVER_URLS = [u.strip() for u in os.getenv("WARPDESK_TURN_URLS", "").split(",") if u.strip()]
+TURN_USERNAME = os.getenv("WARPDESK_TURN_USERNAME", "").strip()
+TURN_CREDENTIAL = os.getenv("WARPDESK_TURN_CREDENTIAL", "").strip()
+ICE_SERVERS_JSON = os.getenv("WARPDESK_ICE_SERVERS_JSON", "").strip()
+GST_STUN_SERVER = os.getenv("WARPDESK_GST_STUN_SERVER", "stun://stun.l.google.com:19302").strip()
+GST_TURN_SERVER = os.getenv("WARPDESK_GST_TURN_SERVER", "").strip()
+
+# Cloudflare TURN short-lived credentials.
+# Keep these in local env files or host environment variables only.
+CLOUDFLARE_TURN_ENABLED = _env_bool("CLOUDFLARE_TURN", _env_bool("WARPDESK_CLOUDFLARE_TURN", True))
+CLOUDFLARE_TURN_TOKEN_ID = os.getenv("WARPDESK_CF_TURN_TOKEN_ID", "").strip()
+CLOUDFLARE_TURN_API_TOKEN = os.getenv("WARPDESK_CF_TURN_API_TOKEN", "").strip()
+CLOUDFLARE_TURN_TTL_SECONDS = int(os.getenv("WARPDESK_CF_TURN_TTL_SECONDS", "3600"))
+CLOUDFLARE_TURN_API_BASE = os.getenv("WARPDESK_CF_TURN_API_BASE", "https://rtc.live.cloudflare.com/v1").strip().rstrip("/")
+CLOUDFLARE_TURN_TIMEOUT_SECONDS = float(os.getenv("WARPDESK_CF_TURN_TIMEOUT_SECONDS", "8"))
+
+
+def build_ice_servers() -> list[dict]:
+    if ICE_SERVERS_JSON:
+        try:
+            parsed = json.loads(ICE_SERVERS_JSON)
+            if isinstance(parsed, list):
+                valid = [item for item in parsed if isinstance(item, dict) and item.get("urls")]
+                if valid:
+                    return valid
+        except Exception:
+            pass
+
+    ice_servers: list[dict] = []
+    if ICE_STUN_SERVERS:
+        ice_servers.append({"urls": ICE_STUN_SERVERS})
+
+    if TURN_SERVER_URLS and TURN_USERNAME and TURN_CREDENTIAL:
+        ice_servers.append({
+            "urls": TURN_SERVER_URLS,
+            "username": TURN_USERNAME,
+            "credential": TURN_CREDENTIAL,
+        })
+    return ice_servers
 
 os.environ.setdefault("GST_SCHEDULING", "sync")
 os.environ.setdefault("GST_DEBUG", "0")
@@ -1079,9 +1164,12 @@ class GstPeer:
         if self.webrtc is None:
             raise RuntimeError("Failed to find webrtcbin element")
 
-        # webrtcbin supports one stun-server property; keep primary Google STUN.
+        # Configure optional STUN/TURN for host-side ICE gathering.
         try:
-            self.webrtc.set_property("stun-server", "stun://stun.l.google.com:19302")
+            if GST_STUN_SERVER:
+                self.webrtc.set_property("stun-server", GST_STUN_SERVER)
+            if GST_TURN_SERVER:
+                self.webrtc.set_property("turn-server", GST_TURN_SERVER)
         except Exception:
             pass
 
@@ -1463,6 +1551,16 @@ class WarpDeskPyAgent:
         self._tui_input_thread = None
         self._runtime_log_lock = threading.Lock()
         self._runtime_log: list[str] = []
+        self.ice_servers = build_ice_servers()
+        self._cf_turn_enabled = (
+            CLOUDFLARE_TURN_ENABLED and bool(CLOUDFLARE_TURN_TOKEN_ID and CLOUDFLARE_TURN_API_TOKEN)
+        )
+        self._cf_cached_ice_servers: list[dict] = []
+        self._cf_cached_until = 0.0
+        self._cf_lock = asyncio.Lock()
+
+        if CLOUDFLARE_TURN_ENABLED and not self._cf_turn_enabled:
+            self.add_runtime_log("[TURN] CLOUDFLARE_TURN enabled but token id/api token missing; using static ICE config")
 
         if ENABLE_TUI:
             self._start_tui()
@@ -1878,6 +1976,76 @@ class WarpDeskPyAgent:
             "os": os.name,
         })
 
+    async def _fetch_cloudflare_turn_ice_servers(self) -> Optional[list[dict]]:
+        if not self._cf_turn_enabled:
+            return None
+
+        endpoint = (
+            f"{CLOUDFLARE_TURN_API_BASE}/turn/keys/"
+            f"{CLOUDFLARE_TURN_TOKEN_ID}/credentials/generate-ice-servers"
+        )
+        headers = {
+            "Authorization": f"Bearer {CLOUDFLARE_TURN_API_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        payload = {"ttl": max(60, CLOUDFLARE_TURN_TTL_SECONDS)}
+
+        timeout = ClientTimeout(total=max(2.0, CLOUDFLARE_TURN_TIMEOUT_SECONDS))
+        async with ClientSession(timeout=timeout) as session:
+            async with session.post(endpoint, headers=headers, json=payload) as resp:
+                if resp.status >= 400:
+                    body = await resp.text()
+                    self.add_runtime_log(f"[TURN] Cloudflare API error status={resp.status} body={body[:180]}")
+                    return None
+                data = await resp.json(content_type=None)
+
+        # Cloudflare can return either top-level iceServers or wrapped result. Support both.
+        candidate = data.get("iceServers") if isinstance(data, dict) else None
+        if not candidate and isinstance(data, dict):
+            result = data.get("result")
+            if isinstance(result, dict):
+                candidate = result.get("iceServers")
+
+        if not isinstance(candidate, list):
+            return None
+        valid = [item for item in candidate if isinstance(item, dict) and item.get("urls")]
+        return valid or None
+
+    async def _get_effective_ice_servers(self) -> list[dict]:
+        if not self._cf_turn_enabled:
+            return self.ice_servers
+
+        now = time.time()
+        if self._cf_cached_ice_servers and now < self._cf_cached_until:
+            return self._cf_cached_ice_servers
+
+        async with self._cf_lock:
+            now = time.time()
+            if self._cf_cached_ice_servers and now < self._cf_cached_until:
+                return self._cf_cached_ice_servers
+
+            fresh = await self._fetch_cloudflare_turn_ice_servers()
+            if fresh:
+                # Refresh a little before true expiry so clients avoid edge-expired creds.
+                cache_seconds = max(30, CLOUDFLARE_TURN_TTL_SECONDS - 30)
+                self._cf_cached_ice_servers = fresh
+                self._cf_cached_until = now + cache_seconds
+                return fresh
+
+            # Fallback to static ICE config if Cloudflare API is unavailable.
+            if self._cf_cached_ice_servers:
+                return self._cf_cached_ice_servers
+            return self.ice_servers
+
+    async def ice_servers_config(self, request: web.Request):
+        if not self._auth_ok(request):
+            return web.json_response({"success": False, "error": "Unauthorized"}, status=401)
+        effective = await self._get_effective_ice_servers()
+        return web.json_response({
+            "success": True,
+            "iceServers": effective,
+        })
+
     async def get_settings(self, request: web.Request):
         if not self._auth_ok(request):
             return web.json_response({"success": False, "error": "Unauthorized"}, status=401)
@@ -2086,6 +2254,7 @@ def create_app() -> web.Application:
         web.post("/api/login", agent.login),
         web.get("/api/session", agent.validate_session),
         web.get("/api/device-info", agent.device_info),
+        web.get("/api/ice-servers", agent.ice_servers_config),
         web.get("/api/settings", agent.get_settings),
         web.post("/api/settings", agent.update_settings),
         web.post("/api/auth/update", agent.update_auth),

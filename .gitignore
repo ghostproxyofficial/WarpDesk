@@ -32,6 +32,10 @@ agent/tauri-control/dist/
 agent/launcher_config.json
 agent/warpdesk_backend.log
 agent/__pycache__/
+.env
+.env.local
+agent/.env
+agent/.env.local
 
 # OS / editor
 .DS_Store

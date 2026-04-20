@@ -67,4 +67,4 @@ Notes:
 
 ## License
 
-MIT
+GPL v3.0

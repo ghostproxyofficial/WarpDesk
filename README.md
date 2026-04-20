@@ -1,4 +1,6 @@
-# WarpDesk
+# WarpDesk Beta
+Windows should work, MacOS and Linux may glitch.
+The project is in Early Beta, expect bugs
 
 WarpDesk is a self-hosted remote desktop stack:
 

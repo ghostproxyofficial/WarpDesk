@@ -53,6 +53,75 @@ Start with `agent/.env.example`:
 
 Detailed backend variables and explanations are in `agent/README.md`.
 
+### Cloudflare Tunnel Setup (Battle-Tested)
+
+This is the setup flow that worked reliably during real debugging.
+
+1. Start WarpDesk locally first:
+
+```bat
+start_all.bat
+```
+
+2. Confirm local services:
+
+- Backend should answer at `https://localhost:8443/api/health`.
+- Web static client is at `http://localhost:8080`.
+
+3. Use a **named tunnel** (recommended), not quick tunnel mode.
+
+Create/route once:
+
+```powershell
+cloudflared tunnel create warpdesk
+cloudflared tunnel route dns warpdesk your-hostname.yourdomain.com
+```
+
+4. Create `C:\Users\<you>\.cloudflared\config.yml` with ingress to the backend:
+
+```yaml
+tunnel: <your-tunnel-id>
+credentials-file: C:/Users/<you>/.cloudflared/<your-tunnel-id>.json
+
+ingress:
+    - service: https://localhost:8443
+        originRequest:
+            noTLSVerify: true
+```
+
+5. Validate and run tunnel:
+
+```powershell
+cloudflared tunnel ingress validate
+cloudflared tunnel run warpdesk
+```
+
+6. In WarpDesk login, set Connection URL to:
+
+`https://your-hostname.yourdomain.com`
+
+### Important Gotchas We Hit
+
+- `cloudflared tunnel --url ...` is quick-tunnel mode and can show:
+    `No ingress rules were defined...`
+    This is expected if you intended to run a named tunnel config.
+- Named tunnel command should be:
+    `cloudflared tunnel run warpdesk`
+- If Cloudflare returns `502` and logs mention `x509: certificate signed by unknown authority`, your origin is using a local/self-signed cert and needs `noTLSVerify: true` in tunnel origin settings.
+- `config.yml` must be valid YAML. If you accidentally paste JSON credentials into `config.yml`, ingress parsing fails.
+- The file `<tunnel-id>.json` in `.cloudflared` is credentials only. Do not edit it as tunnel config.
+
+### Quick Smoke Test
+
+With WarpDesk and tunnel both running:
+
+```powershell
+curl.exe -k https://localhost:8443/api/health
+curl.exe https://your-hostname.yourdomain.com/api/health
+```
+
+Both should return success (`200`) before testing remote desktop.
+
 ## Tauri Control App
 
 From `agent/tauri-control`:

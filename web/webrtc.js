@@ -40,6 +40,7 @@
         if (!candidateLine || typeof candidateLine !== 'string') return null;
         const parts = candidateLine.trim().split(/\s+/);
         if (parts.length < 8) return null;
+        const protocol = (parts[2] || '').toLowerCase();
         const address = parts[4] || '';
         let type = 'unknown';
         for (let i = 0; i < parts.length - 1; i++) {
@@ -48,7 +49,7 @@
                 break;
             }
         }
-        return { type, address, raw: candidateLine };
+        return { type, protocol, address, raw: candidateLine };
     }
 
     function logRemoteAnswerCandidates(sdp) {
@@ -58,7 +59,7 @@
             if (!line.startsWith('a=candidate:')) continue;
             const info = parseCandidateInfo(line.slice(2));
             if (!info) continue;
-            console.log(`[WarpDesk][ICE][remote] type=${info.type} address=${info.address}`, info.raw);
+            console.log(`[WarpDesk][ICE][remote] type=${info.type} proto=${info.protocol} address=${info.address}`, info.raw);
         }
     }
 
@@ -462,7 +463,7 @@
                 if (!info) {
                     console.log('[WarpDesk][ICE][local] candidate parse failed', event.candidate.candidate);
                 } else {
-                    console.log(`[WarpDesk][ICE][local] type=${info.type} address=${info.address}`, event.candidate.candidate);
+                    console.log(`[WarpDesk][ICE][local] type=${info.type} proto=${info.protocol} address=${info.address}`, event.candidate.candidate);
                 }
 
                 if (!signalingSocket || signalingSocket.readyState !== WebSocket.OPEN) {

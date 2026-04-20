@@ -194,6 +194,7 @@ CLOUDFLARE_TURN_API_TOKEN = os.getenv("WARPDESK_CF_TURN_API_TOKEN", "").strip()
 CLOUDFLARE_TURN_TTL_SECONDS = int(os.getenv("WARPDESK_CF_TURN_TTL_SECONDS", "3600"))
 CLOUDFLARE_TURN_API_BASE = os.getenv("WARPDESK_CF_TURN_API_BASE", "https://rtc.live.cloudflare.com/v1").strip().rstrip("/")
 CLOUDFLARE_TURN_TIMEOUT_SECONDS = float(os.getenv("WARPDESK_CF_TURN_TIMEOUT_SECONDS", "8"))
+CLOUDFLARE_TURN_UDP_ONLY = _env_bool("WARPDESK_CF_TURN_UDP_ONLY", True)
 
 
 def build_ice_servers() -> list[dict]:
@@ -218,6 +219,38 @@ def build_ice_servers() -> list[dict]:
             "credential": TURN_CREDENTIAL,
         })
     return ice_servers
+
+
+def _filter_udp_turn_urls(ice_servers: list[dict]) -> list[dict]:
+    filtered: list[dict] = []
+    for server in ice_servers:
+        urls = server.get("urls") if isinstance(server, dict) else None
+        if isinstance(urls, str):
+            url_list = [urls]
+        elif isinstance(urls, list):
+            url_list = [u for u in urls if isinstance(u, str)]
+        else:
+            continue
+
+        keep_urls = []
+        for url in url_list:
+            lower = url.lower()
+            if lower.startswith("stun:"):
+                keep_urls.append(url)
+                continue
+            if not lower.startswith("turn:"):
+                continue
+            if "transport=tcp" in lower:
+                continue
+            if "transport=udp" in lower or "transport=" not in lower:
+                keep_urls.append(url)
+
+        if not keep_urls:
+            continue
+        updated = dict(server)
+        updated["urls"] = keep_urls if isinstance(urls, list) else keep_urls[0]
+        filtered.append(updated)
+    return filtered
 
 os.environ.setdefault("GST_SCHEDULING", "sync")
 os.environ.setdefault("GST_DEBUG", "0")
@@ -2009,6 +2042,10 @@ class WarpDeskPyAgent:
         if not isinstance(candidate, list):
             return None
         valid = [item for item in candidate if isinstance(item, dict) and item.get("urls")]
+        if CLOUDFLARE_TURN_UDP_ONLY:
+            udp_only = _filter_udp_turn_urls(valid)
+            if udp_only:
+                return udp_only
         return valid or None
 
     async def _get_effective_ice_servers(self) -> list[dict]:

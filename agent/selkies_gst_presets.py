@@ -73,7 +73,7 @@ WINDOWS_MF_H264 = PipelinePreset(
     ),
     audio=(
         "wasapi2src loopback=true low-latency=true ! "
-        "queue max-size-time=200000000 ! "
+        "queue leaky=downstream max-size-buffers=4 max-size-time=40000000 ! "
         "audio/x-raw,rate=48000,channels=2 ! "
         "audioconvert ! audioresample ! "
         "opusenc bitrate=128000 bandwidth=fullband frame-size=10 ! rtpopuspay name=audio_pay pt=97"
@@ -94,7 +94,7 @@ WINDOWS_QSV_H264 = PipelinePreset(
     ),
     audio=(
         "wasapisrc loopback=true low-latency=true ! "
-        "queue max-size-time=200000000 ! "
+        "queue leaky=downstream max-size-buffers=4 max-size-time=40000000 ! "
         "audio/x-raw,rate=48000,channels=2 ! "
         "audioconvert ! audioresample ! "
         "opusenc bitrate=128000 bandwidth=fullband frame-size=10 ! rtpopuspay name=audio_pay pt=97"
@@ -112,7 +112,7 @@ WINDOWS_SW_H264 = PipelinePreset(
     ),
     audio=(
         "wasapi2src loopback=true low-latency=true ! "
-        "queue max-size-time=200000000 ! "
+        "queue leaky=downstream max-size-buffers=4 max-size-time=40000000 ! "
         "audio/x-raw,rate=48000,channels=2 ! "
         "audioconvert ! audioresample ! "
         "opusenc bitrate=128000 bandwidth=fullband frame-size=10 ! rtpopuspay name=audio_pay pt=97"

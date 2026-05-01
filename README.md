@@ -53,8 +53,7 @@ Start with `agent/.env.example`:
 
 Detailed backend variables and explanations are in `agent/README.md`.
 
-### Cloudflare Tunnel Setup (Battle-Tested)
-
+### Cloudflare Tunnel Setup
 This is the setup flow that worked reliably during real debugging.
 
 1. Start WarpDesk locally first:
@@ -153,4 +152,4 @@ Notes:
 
 ## License
 
-GPL v3.0
+AGPL v3.0

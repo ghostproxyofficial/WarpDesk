@@ -126,6 +126,16 @@
                     </select>
                     <small>Lower scales drastically reduce CPU usage and network lag.</small>
                 </div>
+                <div class="form-group">
+                    <label for="setting-mouse-speed">Mouse Speed (Relative)</label>
+                    <input type="range" id="setting-mouse-speed" min="0.2" max="2" step="0.05" value="1">
+                    <small id="setting-mouse-speed-value">1.00x</small>
+                </div>
+                <div class="form-group">
+                    <label for="setting-scroll-speed">Scroll Speed</label>
+                    <input type="range" id="setting-scroll-speed" min="0.25" max="4" step="0.25" value="1">
+                    <small id="setting-scroll-speed-value">1.00x</small>
+                </div>
                 <button class="btn btn-primary" id="apply-video-settings">Apply Changes</button>
                 <div class="tab-status" id="video-status">Idle</div>
             </div>

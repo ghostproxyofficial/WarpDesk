@@ -86,8 +86,39 @@
     const pressedKeys = new Set();
     const pressedButtons = new Set();
     let lastMouseSentAt = 0;
+    let relMouseAccumX = 0;
+    let relMouseAccumY = 0;
+    let pointerLockChangedAt = 0;
+    let mouseSpeedFactor = 1.0;
+    let scrollSpeedFactor = 1.0;
+    let lastRelSentDx = 0;
+    let lastRelSentDy = 0;
     const MOUSE_SEND_INTERVAL_MS = 8;
+    const POINTER_LOCK_SETTLE_MS = 120;
+    const RELATIVE_MOUSE_MAX_DELTA = 96;
+    const RELATIVE_MOUSE_AXIS_SPIKE_FLOOR = 18;
     const pointerLockBtn = document.getElementById('pointer-lock-btn');
+
+    function clampInputFactor(value, low, high, fallback) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(low, Math.min(high, n));
+    }
+
+    function setInputTuning(opts) {
+        if (!opts || typeof opts !== 'object') return;
+        mouseSpeedFactor = clampInputFactor(opts.mouseSpeed, 0.2, 2.0, mouseSpeedFactor);
+        scrollSpeedFactor = clampInputFactor(opts.scrollSpeed, 0.25, 4.0, scrollSpeedFactor);
+    }
+
+    try {
+        setInputTuning({
+            mouseSpeed: localStorage.getItem('warpdesk_mouse_speed'),
+            scrollSpeed: localStorage.getItem('warpdesk_scroll_speed'),
+        });
+    } catch (_) { }
+
+    window._setWarpdeskInputTuning = setInputTuning;
 
     function getPointerLockSurface() {
         if (remoteVideo && remoteVideo.style.display !== 'none') return remoteVideo;
@@ -129,6 +160,10 @@
         }
         pressedKeys.clear();
         pressedButtons.clear();
+        relMouseAccumX = 0;
+        relMouseAccumY = 0;
+        lastRelSentDx = 0;
+        lastRelSentDy = 0;
     }
 
     function closePeerConnection() {
@@ -607,6 +642,11 @@
         }
 
         document.addEventListener('pointerlockchange', () => {
+            pointerLockChangedAt = performance.now();
+            relMouseAccumX = 0;
+            relMouseAccumY = 0;
+            lastRelSentDx = 0;
+            lastRelSentDy = 0;
             updatePointerLockUi();
             if (!isPointerLocked()) {
                 sendInputReset();
@@ -617,11 +657,29 @@
             if (!remoteInputEnabled) return;
             if (!isPointerLocked()) return;
             const now = performance.now();
+            if (now - pointerLockChangedAt < POINTER_LOCK_SETTLE_MS) return;
+            const dpr = Math.max(1, window.devicePixelRatio || 1);
+            relMouseAccumX += ((e.movementX || 0) / dpr) * mouseSpeedFactor;
+            relMouseAccumY += ((e.movementY || 0) / dpr) * mouseSpeedFactor;
             if (now - lastMouseSentAt < MOUSE_SEND_INTERVAL_MS) return;
             lastMouseSentAt = now;
-            const dx = Math.trunc(e.movementX || 0);
-            const dy = Math.trunc(e.movementY || 0);
+            let dx = Math.trunc(relMouseAccumX);
+            let dy = Math.trunc(relMouseAccumY);
+            relMouseAccumX -= dx;
+            relMouseAccumY -= dy;
+            dx = Math.max(-RELATIVE_MOUSE_MAX_DELTA, Math.min(RELATIVE_MOUSE_MAX_DELTA, dx));
+            dy = Math.max(-RELATIVE_MOUSE_MAX_DELTA, Math.min(RELATIVE_MOUSE_MAX_DELTA, dy));
+            const dyJumpLimit = Math.max(RELATIVE_MOUSE_AXIS_SPIKE_FLOOR, Math.abs(lastRelSentDy) * 3 + 6);
+            const dxJumpLimit = Math.max(RELATIVE_MOUSE_AXIS_SPIKE_FLOOR, Math.abs(lastRelSentDx) * 3 + 6);
+            if (Math.abs(dy) > dyJumpLimit && Math.abs(dx) <= 8) {
+                dy = 0;
+            }
+            if (Math.abs(dx) > dxJumpLimit && Math.abs(dy) <= 8) {
+                dx = 0;
+            }
             if (dx === 0 && dy === 0) return;
+            lastRelSentDx = dx;
+            lastRelSentDy = dy;
             sendEvent({ type: 'mousemove_rel', dx, dy });
         }, { passive: true });
 
@@ -668,8 +726,13 @@
 
             surface.addEventListener('wheel', (e) => {
                 if (!remoteInputEnabled) return;
-                const dy = e.deltaY > 0 ? 1 : (e.deltaY < 0 ? -1 : 0);
-                const dx = e.deltaX > 0 ? 1 : (e.deltaX < 0 ? -1 : 0);
+                const ySign = e.deltaY > 0 ? 1 : (e.deltaY < 0 ? -1 : 0);
+                const xSign = e.deltaX > 0 ? 1 : (e.deltaX < 0 ? -1 : 0);
+                const yTicks = ySign === 0 ? 0 : Math.max(1, Math.min(12, Math.round((Math.abs(e.deltaY) / 100) * scrollSpeedFactor)));
+                const xTicks = xSign === 0 ? 0 : Math.max(1, Math.min(12, Math.round((Math.abs(e.deltaX) / 100) * scrollSpeedFactor)));
+                const dy = ySign * yTicks;
+                const dx = xSign * xTicks;
+                if (dx === 0 && dy === 0) return;
                 sendEvent({ type: 'mousescroll', dx, dy });
                 e.preventDefault();
             }, { passive: false });

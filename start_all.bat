@@ -1,15 +1,13 @@
 @echo off
 setlocal
 
+set IS_ADMIN=0
 net session >nul 2>&1
-if not "%errorlevel%"=="0" (
-    echo Requesting administrator permission...
-    if "%~1"=="" (
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-    ) else (
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs"
-    )
-    exit /b
+if "%errorlevel%"=="0" set IS_ADMIN=1
+
+if "%IS_ADMIN%"=="0" (
+    echo Running without administrator privileges.
+    echo Admin-only steps ^(port cleanup and firewall rules^) will be skipped.
 )
 
 echo Starting WarpDesk Agent stack...
@@ -109,8 +107,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [2.4/4] Releasing stale listeners on 8080/8443 (if any)...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ports = @(8080,8443); $conns = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }; foreach($c in $conns){ $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; if($null -ne $p -and @('python','python3','cmd','powershell') -contains $p.ProcessName.ToLower()){ Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }" >nul 2>nul
+if "%IS_ADMIN%"=="1" (
+    echo [2.4/4] Releasing stale listeners on 8080/8443 ^(if any^)...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ports = @(8080,8443); $conns = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }; foreach($c in $conns){ $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; if($null -ne $p -and @('python','python3','cmd','powershell') -contains $p.ProcessName.ToLower()){ Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }" >nul 2>nul
+) else (
+    echo [2.4/4] Skipping stale listener cleanup ^(admin only^)...
+)
 
 echo [2.45/4] Verifying ports are available...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$busy = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in @(8080,8443) }; if($busy){ $busy | Select-Object LocalAddress,LocalPort,OwningProcess | Format-Table -AutoSize; exit 1 }" >nul
@@ -122,9 +124,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [2.5/4] Opening firewall ports for LAN testing (8080, 8443)...
-netsh advfirewall firewall add rule name="WarpDesk Web 8080" dir=in action=allow protocol=TCP localport=8080 >nul 2>nul
-netsh advfirewall firewall add rule name="WarpDesk Agent 8443" dir=in action=allow protocol=TCP localport=8443 >nul 2>nul
+if "%IS_ADMIN%"=="1" (
+    echo [2.5/4] Opening firewall ports for LAN testing ^(8080, 8443^)...
+    netsh advfirewall firewall add rule name="WarpDesk Web 8080" dir=in action=allow protocol=TCP localport=8080 >nul 2>nul
+    netsh advfirewall firewall add rule name="WarpDesk Agent 8443" dir=in action=allow protocol=TCP localport=8443 >nul 2>nul
+) else (
+    echo [2.5/4] Skipping firewall rule changes ^(admin only^)...
+)
 
 echo [3/4] Starting static web client on http://0.0.0.0:8080 ...
 start cmd /k "cd /d %ROOT%web && title WarpDesk Web Client && python -m http.server 8080 --bind 0.0.0.0"

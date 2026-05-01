@@ -69,7 +69,7 @@ WINDOWS_MF_H264 = PipelinePreset(
         "video/x-raw(memory:D3D11Memory),format=NV12 ! "
         "mfh264enc bitrate=20000 low-latency=true cabac=false bframes=0 ! "
         "video/x-h264,profile=baseline,stream-format=byte-stream ! "
-        "h264parse config-interval=-1 ! rtph264pay name=video_pay pt=96 config-interval=-1"
+        "h264parse config-interval=1 ! rtph264pay name=video_pay pt=96 config-interval=1"
     ),
     audio=(
         "wasapi2src loopback=true low-latency=true ! "
@@ -90,7 +90,7 @@ WINDOWS_QSV_H264 = PipelinePreset(
         "video/x-raw(memory:D3D11Memory),format=NV12 ! "
         "qsvh264enc bitrate=20000 low-latency=true ! "
         "video/x-h264,profile=baseline,stream-format=byte-stream ! "
-        "h264parse config-interval=-1 ! rtph264pay name=video_pay pt=96 config-interval=-1"
+        "h264parse config-interval=1 ! rtph264pay name=video_pay pt=96 config-interval=1"
     ),
     audio=(
         "wasapisrc loopback=true low-latency=true ! "
@@ -108,7 +108,7 @@ WINDOWS_SW_H264 = PipelinePreset(
         "video/x-raw(memory:D3D11Memory),framerate=60/1,width=1920,height=1080 ! "
         "d3d11download ! videoconvert ! "
         "x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 bitrate=12000 byte-stream=true ! "
-        "h264parse config-interval=-1 ! rtph264pay name=video_pay pt=96 config-interval=-1"
+        "h264parse config-interval=1 ! rtph264pay name=video_pay pt=96 config-interval=1"
     ),
     audio=(
         "wasapi2src loopback=true low-latency=true ! "
@@ -126,7 +126,7 @@ LINUX_X264 = PipelinePreset(
         "queue leaky=downstream max-size-buffers=2 ! "
         "videoconvert ! video/x-raw,framerate=60/1 ! "
         "x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 "
-        "bitrate=12000 byte-stream=true ! h264parse config-interval=-1"
+        "bitrate=12000 byte-stream=true ! h264parse config-interval=1"
     ),
     audio=(
         "pulsesrc do-timestamp=true ! audio/x-raw,rate=48000,channels=2 ! "
@@ -141,7 +141,7 @@ LINUX_NVENC_H264 = PipelinePreset(
         "queue leaky=downstream max-size-buffers=2 ! "
         "videoconvert ! video/x-raw,framerate=60/1 ! "
         "nvh264enc bitrate=12000 gop-size=30 rc-mode=cbr ! "
-        "h264parse config-interval=-1"
+        "h264parse config-interval=1"
     ),
     audio=(
         "pulsesrc do-timestamp=true ! audio/x-raw,rate=48000,channels=2 ! "
@@ -156,7 +156,7 @@ LINUX_VAAPI_H264 = PipelinePreset(
         "queue leaky=downstream max-size-buffers=2 ! "
         "videoconvert ! video/x-raw,framerate=60/1 ! "
         "vaapih264enc bitrate=12000 keyframe-period=30 ! "
-        "h264parse config-interval=-1"
+        "h264parse config-interval=1"
     ),
     audio=(
         "pulsesrc do-timestamp=true ! audio/x-raw,rate=48000,channels=2 ! "
@@ -170,7 +170,7 @@ MAC_VT_H264 = PipelinePreset(
         "avfvideosrc capture-screen=true capture-screen-cursor=true ! "
         "videoconvert ! video/x-raw,framerate=60/1 ! "
         "vtenc_h264_hw allow-frame-reordering=false realtime=true max-keyframe-interval=30 bitrate=12000 ! "
-        "h264parse config-interval=-1"
+        "h264parse config-interval=1"
     ),
     audio=(
         "osxaudiosrc ! audio/x-raw,rate=48000,channels=2 ! "
@@ -185,7 +185,7 @@ MAC_X264 = PipelinePreset(
         "avfvideosrc capture-screen=true capture-screen-cursor=true ! "
         "videoconvert ! video/x-raw,framerate=60/1 ! "
         "x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 bitrate=12000 byte-stream=true ! "
-        "h264parse config-interval=-1"
+        "h264parse config-interval=1"
     ),
     audio=(
         "osxaudiosrc ! audio/x-raw,rate=48000,channels=2 ! "

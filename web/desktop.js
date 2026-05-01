@@ -18,6 +18,10 @@
     const settingsBtn = document.getElementById('open-settings-btn');
     const closeBtn = document.getElementById('close-settings-btn');
     const applyVideoSettingsBtn = document.getElementById('apply-video-settings');
+    const mouseSpeedInput = document.getElementById('setting-mouse-speed');
+    const mouseSpeedValue = document.getElementById('setting-mouse-speed-value');
+    const scrollSpeedInput = document.getElementById('setting-scroll-speed');
+    const scrollSpeedValue = document.getElementById('setting-scroll-speed-value');
     const videoStatus = document.getElementById('video-status');
     const clipboardStatus = document.getElementById('clipboard-status');
     const terminalStatus = document.getElementById('terminal-status');
@@ -31,6 +35,7 @@
     let terminalBusy = false;
     let streamReady = false;
     let fullscreenActive = false;
+    let inputTuningPushTimer = null;
 
     function applyStreamViewportLayout() {
         const topbarVisible = !document.body.classList.contains('topbar-hidden');
@@ -140,6 +145,70 @@
         }
 
         terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    function clampInputSetting(value, low, high, fallback) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.min(high, Math.max(low, n));
+    }
+
+    function updateInputSettingLabels(mouseSpeed, scrollSpeed) {
+        if (mouseSpeedValue) mouseSpeedValue.textContent = `${mouseSpeed.toFixed(2)}x`;
+        if (scrollSpeedValue) scrollSpeedValue.textContent = `${scrollSpeed.toFixed(2)}x`;
+    }
+
+    function getInputTuningFromUi() {
+        const mouseSpeed = clampInputSetting(mouseSpeedInput ? mouseSpeedInput.value : 1, 0.2, 2.0, 1.0);
+        const scrollSpeed = clampInputSetting(scrollSpeedInput ? scrollSpeedInput.value : 1, 0.25, 4.0, 1.0);
+        return { mouseSpeed, scrollSpeed };
+    }
+
+    function saveInputTuning(mouseSpeed, scrollSpeed) {
+        localStorage.setItem('warpdesk_mouse_speed', String(mouseSpeed));
+        localStorage.setItem('warpdesk_scroll_speed', String(scrollSpeed));
+    }
+
+    function applyInputTuning(mouseSpeed, scrollSpeed) {
+        if (typeof window._setWarpdeskInputTuning === 'function') {
+            window._setWarpdeskInputTuning({ mouseSpeed, scrollSpeed });
+        }
+    }
+
+    function pushInputTuningToAgent(mouseSpeed, scrollSpeed) {
+        if (!isControlChannelOpen()) return;
+        sendControlWithAck(
+            {
+                type: 'input_tuning',
+                mouse_speed: mouseSpeed,
+                scroll_speed: scrollSpeed,
+                request_id: makeRequestId('input_tuning'),
+            },
+            { timeoutMs: 1600, retries: 0 }
+        ).catch(() => {
+            // Best-effort: local tuning still applies immediately in viewer.
+        });
+    }
+
+    function schedulePushInputTuning(mouseSpeed, scrollSpeed) {
+        if (inputTuningPushTimer) {
+            window.clearTimeout(inputTuningPushTimer);
+            inputTuningPushTimer = null;
+        }
+        inputTuningPushTimer = window.setTimeout(() => {
+            inputTuningPushTimer = null;
+            pushInputTuningToAgent(mouseSpeed, scrollSpeed);
+        }, 120);
+    }
+
+    function loadInputTuning() {
+        const savedMouse = clampInputSetting(localStorage.getItem('warpdesk_mouse_speed'), 0.2, 2.0, 1.0);
+        const savedScroll = clampInputSetting(localStorage.getItem('warpdesk_scroll_speed'), 0.25, 4.0, 1.0);
+        if (mouseSpeedInput) mouseSpeedInput.value = String(savedMouse);
+        if (scrollSpeedInput) scrollSpeedInput.value = String(savedScroll);
+        updateInputSettingLabels(savedMouse, savedScroll);
+        applyInputTuning(savedMouse, savedScroll);
+        schedulePushInputTuning(savedMouse, savedScroll);
     }
 
     function isControlChannelOpen() {
@@ -275,6 +344,8 @@
         if (state === 'connected') {
             setStatus('WebRTC connected', true);
             forceShowStreamUi();
+            const { mouseSpeed, scrollSpeed } = getInputTuningFromUi();
+            schedulePushInputTuning(mouseSpeed, scrollSpeed);
         }
     });
 
@@ -283,6 +354,8 @@
         if (state === 'connected' || state === 'completed') {
             setStatus('ICE connected', true);
             forceShowStreamUi();
+            const { mouseSpeed, scrollSpeed } = getInputTuningFromUi();
+            schedulePushInputTuning(mouseSpeed, scrollSpeed);
         }
     });
 
@@ -433,6 +506,11 @@
         applyVideoSettingsBtn.textContent = 'Applying...';
 
         try {
+            const inputTuning = getInputTuningFromUi();
+            saveInputTuning(inputTuning.mouseSpeed, inputTuning.scrollSpeed);
+            applyInputTuning(inputTuning.mouseSpeed, inputTuning.scrollSpeed);
+            schedulePushInputTuning(inputTuning.mouseSpeed, inputTuning.scrollSpeed);
+
             let msg = null;
             if (hostUrl && token) {
                 try {
@@ -463,7 +541,11 @@
             }
             const appliedFps = msg.fps || fps;
             const appliedScale = msg.scale || scale;
-            setTabStatus(videoStatus, `Applied: ${appliedFps} FPS, ${appliedScale}%`, 'success');
+            setTabStatus(
+                videoStatus,
+                `Applied: ${appliedFps} FPS, ${appliedScale}%, Mouse ${inputTuning.mouseSpeed.toFixed(2)}x, Scroll ${inputTuning.scrollSpeed.toFixed(2)}x`,
+                'success'
+            );
             applyVideoSettingsBtn.textContent = 'Applied';
             if (window._warpdeskReconnect) {
                 window.setTimeout(() => {
@@ -538,6 +620,26 @@
         } catch (_) {
             // Best-effort sync; leave current defaults if agent is not ready yet.
         }
+    }
+
+    if (mouseSpeedInput) {
+        mouseSpeedInput.addEventListener('input', () => {
+            const { mouseSpeed, scrollSpeed } = getInputTuningFromUi();
+            updateInputSettingLabels(mouseSpeed, scrollSpeed);
+            saveInputTuning(mouseSpeed, scrollSpeed);
+            applyInputTuning(mouseSpeed, scrollSpeed);
+            schedulePushInputTuning(mouseSpeed, scrollSpeed);
+        });
+    }
+
+    if (scrollSpeedInput) {
+        scrollSpeedInput.addEventListener('input', () => {
+            const { mouseSpeed, scrollSpeed } = getInputTuningFromUi();
+            updateInputSettingLabels(mouseSpeed, scrollSpeed);
+            saveInputTuning(mouseSpeed, scrollSpeed);
+            applyInputTuning(mouseSpeed, scrollSpeed);
+            schedulePushInputTuning(mouseSpeed, scrollSpeed);
+        });
     }
 
     document.getElementById('btn-clip-read').addEventListener('click', async () => {
@@ -673,6 +775,8 @@
     setTabStatus(clipboardStatus, 'Idle', 'neutral');
     setTabStatus(terminalStatus, 'Idle', 'neutral');
     setTabStatus(videoStatus, 'Idle', 'neutral');
+    loadInputTuning();
+    window.setTimeout(loadInputTuning, 250);
     validateSession();
     window.setTimeout(syncVideoSettingsFromAgent, 1200);
 })();

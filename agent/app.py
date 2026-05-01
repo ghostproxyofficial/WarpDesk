@@ -172,7 +172,7 @@ INPUT_BACKEND = os.getenv("WARPDESK_INPUT_BACKEND", "auto").strip().lower()
 AUDIO_SOURCE = os.getenv("WARPDESK_AUDIO_SOURCE", "system").strip().lower()
 ALLOW_MIC_FALLBACK = os.getenv("WARPDESK_ALLOW_MIC_FALLBACK", "0") == "1"
 SDP_MIN_BITRATE_KBPS = int(os.getenv("WARPDESK_SDP_MIN_BITRATE_KBPS", "1500"))
-SDP_START_BITRATE_KBPS = int(os.getenv("WARPDESK_SDP_START_BITRATE_KBPS", "8000"))
+SDP_START_BITRATE_KBPS = int(os.getenv("WARPDESK_SDP_START_BITRATE_KBPS", "5000"))
 FORCE_RICH_TUI = os.getenv("WARPDESK_FORCE_RICH_TUI", "1") == "1"
 FORCED_LAN_IP = os.getenv("WARPDESK_FORCED_LAN_IP", "192.168.0.198").strip()
 ICE_STUN_SERVERS = [
@@ -185,6 +185,9 @@ TURN_CREDENTIAL = os.getenv("WARPDESK_TURN_CREDENTIAL", "").strip()
 ICE_SERVERS_JSON = os.getenv("WARPDESK_ICE_SERVERS_JSON", "").strip()
 GST_STUN_SERVER = os.getenv("WARPDESK_GST_STUN_SERVER", "stun://stun.l.google.com:19302").strip()
 GST_TURN_SERVER = os.getenv("WARPDESK_GST_TURN_SERVER", "").strip()
+MOUSE_RELATIVE_SENSITIVITY = float(os.getenv("WARPDESK_MOUSE_RELATIVE_SENSITIVITY", "0.7"))
+MOUSE_RELATIVE_MAX_DELTA = int(os.getenv("WARPDESK_MOUSE_RELATIVE_MAX_DELTA", "96"))
+MOUSE_RELATIVE_SPIKE_FACTOR = int(os.getenv("WARPDESK_MOUSE_RELATIVE_SPIKE_FACTOR", "4"))
 
 # Cloudflare TURN short-lived credentials.
 # Keep these in local env files or host environment variables only.
@@ -933,8 +936,17 @@ class InputWorker:
         if INPUT_BACKEND in {"pyautogui", "gui"}:
             use_direct = False
         self._use_direct_input = use_direct
+        self._rel_sensitivity = max(0.1, min(2.0, float(MOUSE_RELATIVE_SENSITIVITY)))
+        self._rel_max_delta = max(8, min(512, int(MOUSE_RELATIVE_MAX_DELTA)))
+        self._rel_spike_limit = self._rel_max_delta * max(2, int(MOUSE_RELATIVE_SPIKE_FACTOR))
+        self._scroll_speed = 1.0
+        self._last_rel_dx = 0
+        self._last_rel_dy = 0
         backend_name = "pydirectinput" if self._use_direct_input else "pyautogui"
-        print(f"[INPUT] backend={backend_name}", flush=True)
+        print(
+            f"[INPUT] backend={backend_name} rel_sensitivity={self._rel_sensitivity} rel_max_delta={self._rel_max_delta}",
+            flush=True,
+        )
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -948,11 +960,33 @@ class InputWorker:
         pyautogui.moveTo(sx, sy, duration=0, _pause=False)
 
     def _mouse_move_rel(self, dx: int, dy: int) -> None:
-        # Clamp large deltas from accidental unlock/lock transitions.
-        ddx = max(-200, min(200, int(dx)))
-        ddy = max(-200, min(200, int(dy)))
+        raw_dx = int(dx)
+        raw_dy = int(dy)
+
+        # Drop abnormal spikes typically produced by pointer-lock transitions.
+        if abs(raw_dx) > self._rel_spike_limit or abs(raw_dy) > self._rel_spike_limit:
+            return
+
+        # Harden against axis-specific camera flicks (common with sporadic Y spikes).
+        prev_dx = int(self._last_rel_dx)
+        prev_dy = int(self._last_rel_dy)
+        y_jump_limit = max(24, abs(prev_dy) * 3 + 8)
+        x_jump_limit = max(24, abs(prev_dx) * 3 + 8)
+        if abs(raw_dy) > y_jump_limit and abs(raw_dx) <= 8:
+            raw_dy = 0
+        if abs(raw_dx) > x_jump_limit and abs(raw_dy) <= 8:
+            raw_dx = 0
+
+        ddx = int(round(raw_dx * self._rel_sensitivity))
+        ddy = int(round(raw_dy * self._rel_sensitivity))
+        # Keep speed setting effective by allowing clamp headroom when sensitivity > 1.
+        effective_limit = max(self._rel_max_delta, int(round(self._rel_max_delta * max(1.0, self._rel_sensitivity))))
+        ddx = max(-effective_limit, min(effective_limit, ddx))
+        ddy = max(-effective_limit, min(effective_limit, ddy))
         if ddx == 0 and ddy == 0:
             return
+        self._last_rel_dx = ddx
+        self._last_rel_dy = ddy
         if self._use_direct_input:
             try:
                 pydirectinput.moveRel(ddx, ddy)
@@ -960,6 +994,14 @@ class InputWorker:
             except Exception:
                 pass
         pyautogui.moveRel(ddx, ddy, duration=0, _pause=False)
+
+    def set_tuning(self, mouse_speed: Optional[float] = None, scroll_speed: Optional[float] = None) -> tuple[float, float]:
+        with self._state_lock:
+            if mouse_speed is not None:
+                self._rel_sensitivity = max(0.1, min(3.0, float(mouse_speed)))
+            if scroll_speed is not None:
+                self._scroll_speed = max(0.1, min(5.0, float(scroll_speed)))
+            return float(self._rel_sensitivity), float(self._scroll_speed)
 
     def _mouse_down(self, button: str) -> None:
         if self._use_direct_input:
@@ -1099,10 +1141,16 @@ class InputWorker:
                     dy = int(msg.get("dy", 0))
                     dx = int(msg.get("dx", 0))
                     if dy != 0:
-                        pyautogui.scroll(-120 * dy)
+                        amt = int(round(-120 * dy * float(self._scroll_speed)))
+                        if amt == 0:
+                            amt = -1 if dy > 0 else 1
+                        pyautogui.scroll(amt)
                     if dx != 0:
                         try:
-                            pyautogui.hscroll(120 * dx)
+                            hamt = int(round(120 * dx * float(self._scroll_speed)))
+                            if hamt == 0:
+                                hamt = 1 if dx > 0 else -1
+                            pyautogui.hscroll(hamt)
                         except Exception:
                             pass
                 elif t == "keydown":
@@ -1355,7 +1403,9 @@ class GstPeer:
         self.connection_state = state
         if state == "connected":
             self.agent.stats.mark_connected_now()
-        if state in {"failed", "closed", "disconnected"}:
+        # "disconnected" is often transient on weaker links; let it recover
+        # instead of tearing down the peer immediately.
+        if state in {"failed", "closed"}:
             self.loop.call_soon_threadsafe(asyncio.create_task, self.agent._remove_peer(self.peer_id))
 
     def is_connected(self) -> bool:
@@ -1681,6 +1731,28 @@ class WarpDeskPyAgent:
                 "scale": int(self.cfg.scale),
                 "max_fps": int(MAX_FPS),
             })
+            return
+
+        if t == "input_tuning":
+            mouse_speed = msg.get("mouse_speed")
+            scroll_speed = msg.get("scroll_speed")
+            try:
+                applied_mouse, applied_scroll = self.input_worker.set_tuning(
+                    float(mouse_speed) if mouse_speed is not None else None,
+                    float(scroll_speed) if scroll_speed is not None else None,
+                )
+                send_control({
+                    "type": "input_tuning_applied",
+                    "request_id": req_id,
+                    "mouse_speed": applied_mouse,
+                    "scroll_speed": applied_scroll,
+                })
+            except Exception:
+                send_control({
+                    "type": "control_error",
+                    "request_id": req_id,
+                    "error": "invalid_input_tuning",
+                })
             return
 
         try:
